@@ -1,24 +1,5 @@
-"""Late-stage checkpoint analysis for 2-var var-restricted generalization.
-
-This script compares fixed-layout 2-variable train-style examples against
-fully var-restricted examples across a late checkpoint window. The goal is to
-separate three effects:
-
-1. Layer-0 operand selection balance at "=".
-2. Layer-1 value selection balance at "=".
-3. Layer-1 score decomposition into copied-variable terms versus position /
-   lexical terms on the weak RHS value.
-
-It also renders selected ``OV(var) QK1 OV(var)^T`` submatrices across the same
-window so we can inspect how the variable-identity block evolves.
-
-The most direct layer-0 diagnostic is the tiny projected QK0 matrix
-
-    [E_= ; P_15] QK0 [E_var ; P_13 ; P_14]^T
-
-because layer-0 attention from the final "=" token to an operand token at
-position 13 or 14 is exactly the sum of one variable-token column and one
-position column from this matrix.
+"""
+Late-stage checkpoint analysis for 2-var var-restricted generalization.
 """
 
 from __future__ import annotations
@@ -38,6 +19,7 @@ os.environ.setdefault("XDG_CACHE_HOME", "/tmp/cache")
 import matplotlib.pyplot as plt
 import torch
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+
 try:
     from tueplots import bundles
 except ImportError:
@@ -171,7 +153,9 @@ def pair_name(lhs_var: int, rhs_var: int, run_cfg) -> str:
     return f"{run_cfg.token_strings[lhs_var]}/{run_cfg.token_strings[rhs_var]}"
 
 
-def build_group_tokens(group: FixedExampleGroup, run_cfg) -> tuple[torch.Tensor, list[str]]:
+def build_group_tokens(
+    group: FixedExampleGroup, run_cfg
+) -> tuple[torch.Tensor, list[str]]:
     rows = []
     names = []
     for lhs_var in group.lhs_vars:
@@ -180,7 +164,9 @@ def build_group_tokens(group: FixedExampleGroup, run_cfg) -> tuple[torch.Tensor,
                 continue
             for lhs_value, rhs_value in group.number_pairs:
                 rows.append(
-                    build_fixed_layout_tokens(run_cfg, lhs_var, rhs_var, lhs_value, rhs_value)
+                    build_fixed_layout_tokens(
+                        run_cfg, lhs_var, rhs_var, lhs_value, rhs_value
+                    )
                 )
                 names.append(pair_name(lhs_var, rhs_var, run_cfg))
     return torch.stack(rows), names
@@ -194,7 +180,9 @@ def score_term(
     return torch.einsum("bd,df,bf->b", q, qk, k)
 
 
-def group_examples(run_cfg, config: dict) -> tuple[FixedExampleGroup, FixedExampleGroup]:
+def group_examples(
+    run_cfg, config: dict
+) -> tuple[FixedExampleGroup, FixedExampleGroup]:
     left_restrict, right_restrict = get_restriction_vars(config, list(run_cfg.var_ids))
     train_lhs = tuple(v for v in run_cfg.var_ids if v not in set(right_restrict))
     train_rhs = tuple(v for v in run_cfg.var_ids if v not in set(left_restrict))
@@ -229,7 +217,10 @@ def best_wrong_score(
             continue
         k_components = {
             "embed": model.embed.W_E[tokens[:, pos]].detach(),
-            "pos": model.pos_embed.W_pos[pos].detach().unsqueeze(0).expand(tokens.shape[0], -1),
+            "pos": model.pos_embed.W_pos[pos]
+            .detach()
+            .unsqueeze(0)
+            .expand(tokens.shape[0], -1),
             "attn0": cache["attn_out", 0][:, pos, :].detach(),
             "mlp0": cache["mlp_out", 0][:, pos, :].detach(),
         }
@@ -254,7 +245,10 @@ def analyze_group(
 
     q_components = {
         "embed": model.embed.W_E[tokens[:, EQUAL_POS]].detach(),
-        "pos": model.pos_embed.W_pos[EQUAL_POS].detach().unsqueeze(0).expand(tokens.shape[0], -1),
+        "pos": model.pos_embed.W_pos[EQUAL_POS]
+        .detach()
+        .unsqueeze(0)
+        .expand(tokens.shape[0], -1),
         "attn0": cache["attn_out", 0][:, EQUAL_POS, :].detach(),
         "mlp0": cache["mlp_out", 0][:, EQUAL_POS, :].detach(),
     }
@@ -273,7 +267,10 @@ def analyze_group(
     for side, value_pos in (("lhs", LHS_VALUE_POS), ("rhs", RHS_VALUE_POS)):
         k_components = {
             "embed": model.embed.W_E[tokens[:, value_pos]].detach(),
-            "pos": model.pos_embed.W_pos[value_pos].detach().unsqueeze(0).expand(tokens.shape[0], -1),
+            "pos": model.pos_embed.W_pos[value_pos]
+            .detach()
+            .unsqueeze(0)
+            .expand(tokens.shape[0], -1),
             "attn0": cache["attn_out", 0][:, value_pos, :].detach(),
             "mlp0": cache["mlp_out", 0][:, value_pos, :].detach(),
         }
@@ -283,12 +280,18 @@ def analyze_group(
             for k_name, k_val in k_components.items():
                 contribution = score_term(q_val, qk_scaled, k_val)
                 total = total + contribution
-                term_totals[f"{side}:{q_name}->{k_name}"].append(float(contribution.mean()))
+                term_totals[f"{side}:{q_name}->{k_name}"].append(
+                    float(contribution.mean())
+                )
         total_scores[f"{side}:total"].append(float(total.mean()))
 
     wrong = best_wrong_score(q_components, tokens, cache, qk_scaled, model)
-    rhs_total = sum(term_totals[f"rhs:{q}->{k}"][0] for q in q_components for k in q_components)
-    lhs_total = sum(term_totals[f"lhs:{q}->{k}"][0] for q in q_components for k in q_components)
+    rhs_total = sum(
+        term_totals[f"rhs:{q}->{k}"][0] for q in q_components for k in q_components
+    )
+    lhs_total = sum(
+        term_totals[f"lhs:{q}->{k}"][0] for q in q_components for k in q_components
+    )
 
     results["rhs_score_total"] = rhs_total
     results["lhs_score_total"] = lhs_total
@@ -304,12 +307,14 @@ def analyze_group(
 
 
 def selected_var_scores(model, run_cfg, selected_vars: list[int]) -> torch.Tensor:
-    qk_raw = model.blocks[1].attn.W_Q[ATTENTION_HEAD_IDX] @ model.blocks[1].attn.W_K[
-        ATTENTION_HEAD_IDX
-    ].T
-    ov0 = model.blocks[0].attn.W_V[ATTENTION_HEAD_IDX] @ model.blocks[0].attn.W_O[
-        ATTENTION_HEAD_IDX
-    ]
+    qk_raw = (
+        model.blocks[1].attn.W_Q[ATTENTION_HEAD_IDX]
+        @ model.blocks[1].attn.W_K[ATTENTION_HEAD_IDX].T
+    )
+    ov0 = (
+        model.blocks[0].attn.W_V[ATTENTION_HEAD_IDX]
+        @ model.blocks[0].attn.W_O[ATTENTION_HEAD_IDX]
+    )
     var_ov = model.embed.W_E[selected_vars].detach() @ ov0.detach()
     return (var_ov @ qk_raw.detach() @ var_ov.T).cpu()
 
@@ -342,10 +347,13 @@ def qk0_operand_role_scores(
     selected_vars: list[int],
 ) -> dict[str, list[float] | float]:
     qk0 = qk0_matrix_scaled(model)
-    query = model.embed.W_E[run_cfg.equal_id].detach() + model.pos_embed.W_pos[
-        EQUAL_POS
-    ].detach()
-    var_scores = (query @ qk0 @ model.embed.W_E[selected_vars].detach().T).detach().cpu()
+    query = (
+        model.embed.W_E[run_cfg.equal_id].detach()
+        + model.pos_embed.W_pos[EQUAL_POS].detach()
+    )
+    var_scores = (
+        (query @ qk0 @ model.embed.W_E[selected_vars].detach().T).detach().cpu()
+    )
     pos_lhs = float(query @ qk0 @ model.pos_embed.W_pos[LHS_VAR_POS].detach())
     pos_rhs = float(query @ qk0 @ model.pos_embed.W_pos[RHS_VAR_POS].detach())
     lhs_scores = var_scores + pos_lhs
@@ -361,17 +369,36 @@ def qk0_operand_role_scores(
 
 
 def progress_window(progress_path: Path, steps: list[int]) -> dict[str, list[float]]:
+    if not progress_path.exists():
+        progress_path = Path("progress_measures.json")
+
     payload = json.loads(progress_path.read_text())
     all_steps = payload["steps"]
     indices = [all_steps.index(step) for step in steps]
+
+    if "accuracy_overlays" in payload:
+        overlays = payload["accuracy_overlays"]
+        return {
+            "2var_train": [overlays["two_var_train_acc"][i] for i in indices],
+            "2var_var_restricted_1": [
+                overlays["two_var_variable_restricted_1_acc"][i] for i in indices
+            ],
+            "2var_var_restricted_2": [
+                overlays["two_var_variable_restricted_2_acc"][i] for i in indices
+            ],
+        }
+
     key = "attn_l1_equal_to_values"
     return {
-        "2var_train": [payload["results"][key]["2var_valid_pair_valid_vars"][i] for i in indices],
+        "2var_train": [
+            payload["results"][key]["2var_valid_pair_valid_vars"][i] for i in indices
+        ],
         "2var_var_restricted_1": [
             payload["results"][key]["2var_valid_pair_1_invalid_var"][i] for i in indices
         ],
         "2var_var_restricted_2": [
-            payload["results"][key]["2var_valid_pair_2_invalid_vars"][i] for i in indices
+            payload["results"][key]["2var_valid_pair_2_invalid_vars"][i]
+            for i in indices
         ],
     }
 
@@ -408,7 +435,7 @@ def score_b_operand_roles(
 ) -> dict[str, float]:
     with torch.no_grad():
         logits = model(tokens.to(model.cfg.device))
-        preds = logits[:, -1, :run_cfg.mod].argmax(dim=-1).detach().cpu()
+        preds = logits[:, -1, : run_cfg.mod].argmax(dim=-1).detach().cpu()
 
     role_scores = {}
     for name, mask in masks.items():
@@ -431,7 +458,9 @@ def plot_overview(
     fig, axes = plt.subplots(2, 2, figsize=FIGSIZE_WIDE, layout="constrained")
     ax_a, ax_b, ax_c, ax_d = axes.flat
 
-    ax_a.plot(steps, progress["2var_train"], label="2-var train", color="#2ca02c", linewidth=2)
+    ax_a.plot(
+        steps, progress["2var_train"], label="2-var train", color="#2ca02c", linewidth=2
+    )
     ax_a.plot(
         steps,
         progress["2var_var_restricted_1"],
@@ -594,7 +623,9 @@ def plot_selected_var_grid(
         ax.axis("off")
 
     for ax, step in zip(axes.flat, steps):
-        im = ax.imshow(matrices[step].numpy(), cmap="bwr", vmin=vmin, vmax=vmax, aspect="equal")
+        im = ax.imshow(
+            matrices[step].numpy(), cmap="bwr", vmin=vmin, vmax=vmax, aspect="equal"
+        )
         ax.set_title(f"Step {step}", fontsize=FONT_SIZE_BODY)
         ax.set_xticks(range(len(labels)))
         ax.set_yticks(range(len(labels)))
@@ -678,7 +709,9 @@ def plot_qk0_operand_score_components(
         )
     ax_a.set_title("(a)", loc="left", fontsize=FONT_SIZE_BODY, fontweight="bold")
     ax_a.set_xlabel("Training Step", fontsize=FONT_SIZE_BODY)
-    ax_a.set_ylabel(r"QK0 term: $(E_=+P15)\to E_{\mathrm{var}}$", fontsize=FONT_SIZE_BODY)
+    ax_a.set_ylabel(
+        r"QK0 term: $(E_=+P15)\to E_{\mathrm{var}}$", fontsize=FONT_SIZE_BODY
+    )
     ax_a.legend(fontsize=FONT_SIZE_LEGEND, ncol=3)
     style_axes(ax_a)
 
@@ -699,7 +732,9 @@ def plot_qk0_operand_score_components(
     )
     ax_b.set_title("(b)", loc="left", fontsize=FONT_SIZE_BODY, fontweight="bold")
     ax_b.set_xlabel("Training Step", fontsize=FONT_SIZE_BODY)
-    ax_b.set_ylabel(r"QK0 term: $(E_=+P15)\to P_{\mathrm{slot}}$", fontsize=FONT_SIZE_BODY)
+    ax_b.set_ylabel(
+        r"QK0 term: $(E_=+P15)\to P_{\mathrm{slot}}$", fontsize=FONT_SIZE_BODY
+    )
     ax_b.legend(fontsize=FONT_SIZE_LEGEND)
     style_axes(ax_b)
 
@@ -772,7 +807,9 @@ def main() -> None:
         train_group.name: build_group_tokens(train_group, run_cfg)[0],
         restricted_group.name: build_group_tokens(restricted_group, run_cfg)[0],
     }
-    b_role_tokens, b_role_labels, b_role_masks = build_b_operand_role_pool(config, run_cfg)
+    b_role_tokens, b_role_labels, b_role_masks = build_b_operand_role_pool(
+        config, run_cfg
+    )
 
     results: dict[str, dict[int, dict[str, float]]] = {
         train_group.name: {},
@@ -786,14 +823,18 @@ def main() -> None:
     qk0_role_scores: dict[int, dict[str, list[float] | float]] = {}
 
     for step in steps:
-        load_checkpoint(model, step, Path(args.checkpoint_dir), torch.device(args.device))
+        load_checkpoint(
+            model, step, Path(args.checkpoint_dir), torch.device(args.device)
+        )
         qk_scaled = (
             model.blocks[1].attn.W_Q[ATTENTION_HEAD_IDX]
             @ model.blocks[1].attn.W_K[ATTENTION_HEAD_IDX].T
         ).detach() / math.sqrt(model.cfg.d_head)
 
         for group_name, tokens in group_tokens.items():
-            results[group_name][step] = analyze_group(model, tokens.to(model.cfg.device), qk_scaled)
+            results[group_name][step] = analyze_group(
+                model, tokens.to(model.cfg.device), qk_scaled
+            )
 
         b_role_scores = score_b_operand_roles(
             model,
@@ -807,7 +848,9 @@ def main() -> None:
 
         if step in focus_steps:
             submatrices[step] = selected_var_scores(model, run_cfg, selected_vars)
-            qk0_basis_terms[step] = qk0_equal_query_basis_terms(model, run_cfg, selected_vars)
+            qk0_basis_terms[step] = qk0_equal_query_basis_terms(
+                model, run_cfg, selected_vars
+            )
         qk0_role_scores[step] = qk0_operand_role_scores(model, run_cfg, selected_vars)
 
     progress = progress_window(Path("progress_measures_pools.json"), steps)
@@ -858,7 +901,8 @@ def main() -> None:
         "b_role_accuracy": b_role_accuracy,
         "qk0_equal_query_key_labels": selected_labels,
         "qk0_equal_query_matrices": {
-            str(step): qk0_basis_terms[step].tolist() for step in sorted(qk0_basis_terms)
+            str(step): qk0_basis_terms[step].tolist()
+            for step in sorted(qk0_basis_terms)
         },
         "qk0_operand_role_scores": qk0_role_scores,
     }

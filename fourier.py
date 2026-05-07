@@ -4,16 +4,24 @@ import random
 from collections import defaultdict
 from dataclasses import asdict
 
+os.environ.setdefault("MPLBACKEND", "Agg")
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/mpl")
+os.environ.setdefault("XDG_CACHE_HOME", "/tmp/cache")
+
 import numpy as np
 import einops
 from functools import partial
 from jaxtyping import Float
 import matplotlib.pyplot as plt
-from tueplots import bundles
+try:
+    from tueplots import bundles
+except ImportError:
+    bundles = None
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import plotly.express as px
 import plotly.io as pio
+import plotly.basedatatypes as plotly_base
 import torch
 import torch.nn as nn
 from sklearn.decomposition import PCA
@@ -26,9 +34,8 @@ from transformer_lens.hook_points import (
 ) 
 import transformer_lens.utils as utils
 
-pio.renderers.default = "notebook"
-if os.getenv("GITHUB_ACTIONS") == "true":
-    pio.renderers.default = "svg"
+pio.renderers.default = "json"
+plotly_base.BaseFigure.show = lambda self, *args, **kwargs: None
 
 SEED = 42
 random.seed(SEED)
@@ -234,7 +241,11 @@ fig_pca.show()
 
 
 # %% Trying to replicate Neel Nanda's modular addition grokking
-from neel_plotly.plot import line
+try:
+    from neel_plotly.plot import line
+except ImportError:
+    def line(*args, **kwargs):
+        return None
 
 def _build_core_only_sequence(lhs: int, rhs: int) -> torch.Tensor:
     seq = [PAD] * (SEQ_LEN - 4) + [PLUS, lhs, rhs, EQUAL]

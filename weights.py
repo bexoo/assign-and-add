@@ -5,14 +5,22 @@ import random
 from collections import defaultdict
 from dataclasses import asdict
 
+os.environ.setdefault("MPLBACKEND", "Agg")
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/mpl")
+os.environ.setdefault("XDG_CACHE_HOME", "/tmp/cache")
+
 import numpy as np
 import einops
 from functools import partial
 from jaxtyping import Float
 import matplotlib.pyplot as plt  # for quick static sanity-checks
-from tueplots import bundles
+try:
+    from tueplots import bundles
+except ImportError:
+    bundles = None
 
-plt.rcParams.update(bundles.neurips2024(usetex=False))
+if bundles is not None:
+    plt.rcParams.update(bundles.neurips2024(usetex=False))
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -340,9 +348,13 @@ fig_heat_ex.update_layout(
 )
 for annotation in fig_heat_ex.layout.annotations:
     annotation.font.size = 20
-fig_heat_ex.write_image("attention_patterns.pdf", engine="kaleido", width=800, height=1000)
-fig_heat_ex.show()
-print("Saved: attention_patterns.pdf")
+if kaleido is not None:
+    fig_heat_ex.write_image(
+        "attention_patterns.pdf", engine="kaleido", width=800, height=1000
+    )
+    print("Saved: attention_patterns.pdf")
+else:
+    print("Skipped attention_patterns.pdf: kaleido is not installed")
 
 # %% Get all token and positional embeddings
 with torch.no_grad():

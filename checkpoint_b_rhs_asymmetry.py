@@ -47,6 +47,7 @@ POOL_SIZE = 4096
 CHECKPOINT_DIR = Path("checkpoints")
 OUTPUT_DIR = Path("checkpoint_b_rhs_asymmetry")
 FIGURE_DIR = Path("figures")
+PNG_FIGURE_DIR = Path("figures_png")
 QK2_COMPONENT_JSON = "qk2_operand_embedding_component.json"
 B_ROLE_QK2_JSON = "b_rhs_actual_qk2_breakdown.json"
 B_ROLE_QK2_TABLE = "b_rhs_actual_source_contributions.md"
@@ -1127,8 +1128,12 @@ def plot_data(data: dict) -> None:
     FIGURE_DIR.mkdir(parents=True, exist_ok=True)
     path = FIGURE_DIR / "b_rhs_asymmetry_mechanism.pdf"
     fig.savefig(path, bbox_inches="tight")
-    plt.close(fig)
     print(f"Saved: {path}")
+    PNG_FIGURE_DIR.mkdir(parents=True, exist_ok=True)
+    png_path = PNG_FIGURE_DIR / "b_rhs_asymmetry_mechanism.png"
+    fig.savefig(png_path, dpi=180, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved: {png_path}")
 
 
 def main() -> None:
