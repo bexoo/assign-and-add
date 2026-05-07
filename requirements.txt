@@ -1,0 +1,14 @@
+einops
+fancy-einsum
+jaxtyping
+matplotlib
+neel-plotly
+numpy
+pandas
+plotly
+scikit-learn
+torch
+tqdm
+transformer-lens
+tueplots
+
